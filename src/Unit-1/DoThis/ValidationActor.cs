@@ -1,12 +1,13 @@
-﻿using Akka.Actor;
+﻿using System.IO;
+using Akka.Actor;
 
 namespace WinTail
 {
-    public class ValidationActor : UntypedActor
+    public class FileValidatorActor : UntypedActor
     {
         private readonly IActorRef _consoleWriterActor;
 
-        public ValidationActor(IActorRef consoleWriterActor)
+        public FileValidatorActor(IActorRef consoleWriterActor)
         {
             _consoleWriterActor = consoleWriterActor;
         }
@@ -16,27 +17,31 @@ namespace WinTail
             var msg = message as string;
             if (string.IsNullOrEmpty(msg))
             {
-                _consoleWriterActor.Tell(new Messages.NullInputError("No input received."));
+                _consoleWriterActor.Tell(new Messages.NullInputError("Input was blank. Please try again.\n"));
+
+                Sender.Tell(new Messages.ContinueProcessing());
             }
             else
             {
-                var valid = IsValid(msg);
+                var valid = IsFileUri(msg);
                 if (valid)
                 {
-                    _consoleWriterActor.Tell(new Messages.InputSuccess("Thank you! Message was valid."));
+                    _consoleWriterActor.Tell(new Messages.InputSuccess(string.Format("Starting processing for {0}", msg)));
+
+                    Context.ActorSelection("akka://MyActorSystem/user/tailCoordinatorActor").Tell(new TailCoordinatorActor.StartTail(msg, _consoleWriterActor));
                 }
                 else
                 {
-                    _consoleWriterActor.Tell(new Messages.ValidationError("Invalid: input had odd number of characters."));
+                    _consoleWriterActor.Tell(new Messages.ValidationError(string.Format("{0} is not an existing URI on disk.", msg)));
+                    
+                    Sender.Tell(new Messages.ContinueProcessing());
                 }
             }
-
-            Sender.Tell(new Messages.ContinueProcessing());
         }
 
-        static bool IsValid(string msg)
+        private static bool IsFileUri(string path)
         {
-            return msg.Length % 2 == 0;
+            return File.Exists(path);
         }
     }
 }
